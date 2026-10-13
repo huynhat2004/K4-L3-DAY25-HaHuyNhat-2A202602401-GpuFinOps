@@ -51,22 +51,21 @@ overview: # Tùy chọn; điền đủ các phần dưới để hiện Bản đ
     - "Triển khai và đo lường được ít nhất 2 phần mở rộng nâng cao"
   reassurance: "Lab chạy hoàn toàn trên laptop, không cần GPU thật, không cần tài khoản cloud hay API key — mọi dữ liệu đều được sinh tất định (seed=25) nên kết quả luôn tái lập được."
 ---
-
 ## 1. Thuật ngữ cần biết
 
-| Thuật ngữ gốc | Bản chất khái niệm | Minh hoạ trực quan |
-| --- | --- | --- |
-| `MFU` (Model FLOPs Utilization) | % FLOPs thực sự dùng so với FLOPs đỉnh (peak) của GPU — đo hiệu quả tính toán thật, không phải "GPU có đang bận hay không" | `gpu-h100-4` có `GPU-Util = 98%` nhưng `MFU ≈ 0.20` — bạn trả tiền cho cả giờ H100 nhưng chỉ nhận 1/5 FLOPs |
-| `MBU` (Model Bandwidth Utilization) | % băng thông bộ nhớ HBM thực dùng / peak — chỉ số quan trọng cho workload memory-bound như decode | Một job decode LLM có MBU thấp nghĩa là GPU đang "chờ dữ liệu" nhiều hơn là tính toán |
-| `GPU-Util lie` | `nvidia-smi` chỉ đo "clock đang bận", không đo FLOPs thực sự sinh ra — dễ đánh lừa người mua sắm hạ tầng | Nhiệm vụ M1 phải phát hiện đúng GPU nào đang "nói dối" trong 11 GPU của telemetry |
-| `$/1M-token` | Đơn vị chi phí chuẩn hoá theo sản lượng token, thay vì theo giờ thuê GPU | Hai team trả cùng `$/GPU-giờ` nhưng team tối ưu tốt hơn phục vụ được 10× số token |
-| `Cascade routing` | Định tuyến request sang model nhỏ, rẻ hơn (thường ~15×), chỉ dùng model lớn khi thực sự cần | M2 mô phỏng chuyển bớt traffic từ `route_tier="large"` sang `"small"` |
-| `Prompt Caching` | Phần input trùng lặp đã được cache chỉ tính 10% giá gốc (chiết khấu 90%) | Trong `token_usage.csv`, cột `cached_input_tokens` là phần được hưởng mức giá này |
-| `Batch API` | Gộp các request không cần phản hồi real-time để hưởng chiết khấu 50% | Cột `is_batch=1` trong dữ liệu token đánh dấu các request đủ điều kiện |
-| `Break-even utilization` | Mức sử dụng tối thiểu để reserved instance có lợi hơn on-demand: `1 - discount` | Với chiết khấu reserved 45% → cần duty cycle ≥ 55% (~13.2 giờ/ngày) mới nên mua reserved |
-| `Showback / Chargeback` | Showback = hiển thị chi phí theo team để nhận thức; Chargeback = thực sự thu tiền, chỉ làm được khi tag coverage ≥ 80% | M4 kiểm tra `tag_coverage` trước khi bật "chargeback ready" |
-| `FOCUS` | Chuẩn dữ liệu chi phí cloud mở, đa nhà cung cấp (FinOps Foundation) | M4 xuất `outputs/focus_export.csv` theo đúng schema FOCUS (`BilledCost`, `ServiceCategory`, ...) |
-| `Roofline model` | Mô hình xác định workload bị giới hạn bởi compute hay bởi bandwidth, dựa trên arithmetic intensity so với ridge point của GPU | LLM prefill (~455 FLOP/byte) là compute-bound; LLM decode (~1–2 FLOP/byte) là memory-bound trên H100 |
+| Thuật ngữ gốc                                                                                                                                                                                           | Bản chất khái niệm                                                                                                                         | Minh hoạ trực quan                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `MFU` (Model FLOPs Utilization)                                                                                                                                                                          | % FLOPs thực sự dùng so với FLOPs đỉnh (peak) của GPU — đo hiệu quả tính toán thật, không phải "GPU có đang bận hay không" | `gpu-h100-4` có `GPU-Util = 98%` nhưng `MFU ≈ 0.20` — bạn trả tiền cho cả giờ H100 nhưng chỉ nhận 1/5 FLOPs |
+| `MBU` (Model Bandwidth Utilization)                                                                                                                                                                      | % băng thông bộ nhớ HBM thực dùng / peak — chỉ số quan trọng cho workload memory-bound như decode                                   | Một job decode LLM có MBU thấp nghĩa là GPU đang "chờ dữ liệu" nhiều hơn là tính toán                           |
+| `GPU-Util lie`                                                                                                                                                                                           | `nvidia-smi` chỉ đo "clock đang bận", không đo FLOPs thực sự sinh ra — dễ đánh lừa người mua sắm hạ tầng                   | Nhiệm vụ M1 phải phát hiện đúng GPU nào đang "nói dối" trong 11 GPU của telemetry                                 |
+| `$/1M-token` | Đơn vị chi phí chuẩn hoá theo sản lượng token, thay vì theo giờ thuê GPU | Hai team trả cùng `$/GPU-giờ` nhưng team tối ưu tốt hơn phục vụ được 10× số token |                                                                                                                                                |                                                                                                                               |
+| `Cascade routing`                                                                                                                                                                                        | Định tuyến request sang model nhỏ, rẻ hơn (thường ~15×), chỉ dùng model lớn khi thực sự cần                                     | M2 mô phỏng chuyển bớt traffic từ`route_tier="large"` sang `"small"`                                                 |
+| `Prompt Caching`                                                                                                                                                                                         | Phần input trùng lặp đã được cache chỉ tính 10% giá gốc (chiết khấu 90%)                                                         | Trong`token_usage.csv`, cột `cached_input_tokens` là phần được hưởng mức giá này                               |
+| `Batch API`                                                                                                                                                                                              | Gộp các request không cần phản hồi real-time để hưởng chiết khấu 50%                                                               | Cột`is_batch=1` trong dữ liệu token đánh dấu các request đủ điều kiện                                           |
+| `Break-even utilization`                                                                                                                                                                                 | Mức sử dụng tối thiểu để reserved instance có lợi hơn on-demand:`1 - discount`                                                     | Với chiết khấu reserved 45% → cần duty cycle ≥ 55% (~13.2 giờ/ngày) mới nên mua reserved                            |
+| `Showback / Chargeback`                                                                                                                                                                                  | Showback = hiển thị chi phí theo team để nhận thức; Chargeback = thực sự thu tiền, chỉ làm được khi tag coverage ≥ 80%         | M4 kiểm tra`tag_coverage` trước khi bật "chargeback ready"                                                              |
+| `FOCUS`                                                                                                                                                                                                  | Chuẩn dữ liệu chi phí cloud mở, đa nhà cung cấp (FinOps Foundation)                                                                    | M4 xuất`outputs/focus_export.csv` theo đúng schema FOCUS (`BilledCost`, `ServiceCategory`, ...)                      |
+| `Roofline model`                                                                                                                                                                                         | Mô hình xác định workload bị giới hạn bởi compute hay bởi bandwidth, dựa trên arithmetic intensity so với ridge point của GPU    | LLM prefill (~455 FLOP/byte) là compute-bound; LLM decode (~1–2 FLOP/byte) là memory-bound trên H100                      |
 
 ## 2. Mục tiêu & đầu ra
 
@@ -107,13 +106,13 @@ python data/generate.py   # sinh 4 file CSV trong data/, seed cố định = 25
 
 ### 4.2 Chạy 5 Mission
 
-| # | Lệnh chạy | Bạn học được gì | Kết quả mong đợi |
-| --- | --- | --- | --- |
-| M1 | `python missions/m1_efficiency_audit.py` | Kiểm toán hiệu quả — MFU/MBU, "GPU-Util lie", lãng phí idle | In ra bảng GPU kèm util/MFU/MBU, liệt kê `gpu-h100-4` là GPU-Util lie, tính idle waste ($/tháng) |
-| M2 | `python missions/m2_inference_levers.py` | Đòn bẩy chi phí inference — `$/1M-token`, cascade × cache × batch | `baseline` vs `optimized` theo `$/1M-token`, savings trong khoảng 60–95% |
-| M3 | `python missions/m3_purchasing.py` | Chiến lược mua GPU — điểm hòa vốn, spot/reserved, checkpoint simulation | Mỗi job được gán tier (`spot`/`reserved`/`on_demand`), tổng savings > 0 |
-| M4 | `python missions/m4_allocation.py` | Phân bổ chi phí theo tag → showback → chargeback, FOCUS export | Chi phí theo team, tag coverage 85–100%, file `outputs/focus_export.csv` |
-| M5 | `python missions/m5_report.py` | Báo cáo tối ưu — gộp M1–M4 thành baseline vs. optimized + sustainability | `outputs/report.md` + `outputs/savings.png`, tổng savings trong khoảng 40–95% |
+| #  | Lệnh chạy                                | Bạn học được gì                                                                                                                                        | Kết quả mong đợi                                                                                     |
+| -- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| M1 | `python missions/m1_efficiency_audit.py` | Kiểm toán hiệu quả — MFU/MBU, "GPU-Util lie", lãng phí idle                                                                                           | In ra bảng GPU kèm util/MFU/MBU, liệt kê`gpu-h100-4` là GPU-Util lie, tính idle waste ($/tháng) |
+| M2 | `python missions/m2_inference_levers.py` | Đòn bẩy chi phí inference —`$/1M-token`, cascade × cache × batch | `baseline` vs `optimized` theo `$/1M-token`, savings trong khoảng 60–95% |                                                                                                          |
+| M3 | `python missions/m3_purchasing.py`       | Chiến lược mua GPU — điểm hòa vốn, spot/reserved, checkpoint simulation                                                                              | Mỗi job được gán tier (`spot`/`reserved`/`on_demand`), tổng savings > 0                      |
+| M4 | `python missions/m4_allocation.py`       | Phân bổ chi phí theo tag → showback → chargeback, FOCUS export                                                                                          | Chi phí theo team, tag coverage 85–100%, file`outputs/focus_export.csv`                              |
+| M5 | `python missions/m5_report.py`           | Báo cáo tối ưu — gộp M1–M4 thành baseline vs. optimized + sustainability                                                                             | `outputs/report.md` + `outputs/savings.png`, tổng savings trong khoảng 40–95%                     |
 
 Sau mỗi mission, dừng lại trả lời các câu hỏi phân tích tương ứng trong [Guide.md](Guide.md) (mục 4.3, 5.4, 6.4, 7.4) — đây là phần giúp bạn hiểu bản chất thay vì chỉ chạy script.
 
@@ -175,12 +174,12 @@ Bài viết ngắn cần trả lời:
 Checklist trước khi nộp:
 
 ```
-[ ] python verify.py  →  11/11 checks passed
-[ ] pytest -q         →  15 passed
-[ ] outputs/report.md tồn tại và có đủ section (baseline/optimized, breakdown lever, sustainability)
-[ ] outputs/savings.png tồn tại
-[ ] outputs/focus_export.csv tồn tại
-[ ] Đã thực hiện ≥2 extension với kết quả đo lường cụ thể
+[x] python verify.py  →  11/11 checks passed
+[x] pytest -q         →  15 passed
+[x] outputs/report.md tồn tại và có đủ section (baseline/optimized, breakdown lever, sustainability)
+[x] outputs/savings.png tồn tại
+[x] outputs/focus_export.csv tồn tại
+[x] Đã thực hiện ≥2 extension với kết quả đo lường cụ thể
 ```
 
 Bài lab được dùng làm **đầu vào cho Milestone 2** — mang báo cáo đến buổi demo platform. Repo gốc của bài lab: [VinUni-AI20k/Day25-Track2-GpuFinOps](https://github.com/VinUni-AI20k/Day25-Track2-GpuFinOps).

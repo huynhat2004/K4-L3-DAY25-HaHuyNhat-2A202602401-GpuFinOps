@@ -45,3 +45,51 @@ def tokens_per_watt(total_tokens: int, wh: float, seconds: float = 1.0) -> float
     """Energy efficiency of serving: tokens per watt (higher is better)."""
     watts = (wh * 3600.0) / seconds if seconds > 0 else 0.0
     return total_tokens / watts if watts > 0 else 0.0
+
+
+def gpu_energy_kwh(power_w: float, gpu_hours: float) -> float:
+    """Energy used by a GPU workload, including all allocated GPU-hours."""
+    return max(0.0, power_w) * max(0.0, gpu_hours) / 1000.0
+
+
+def region_impact(energy_kwh: float, region: str) -> dict:
+    """Electricity cost and operational carbon for energy run in one region."""
+    energy = max(0.0, energy_kwh)
+    carbon_intensity = REGION_CARBON.get(region, 400)
+    electricity_price = REGION_PRICE_KWH.get(region, 0.12)
+    return {
+        "region": region,
+        "energy_kwh": round(energy, 3),
+        "electricity_cost_usd": round(energy * electricity_price, 2),
+        "carbon_kg": round(energy * carbon_intensity / 1000.0, 3),
+        "carbon_g_per_kwh": carbon_intensity,
+        "price_per_kwh": electricity_price,
+    }
+
+
+def rank_regions(energy_kwh: float) -> dict:
+    """Compare regions and identify cheapest, cleanest and balanced choices.
+
+    The balanced score weights normalized electricity price and carbon equally.
+    This is intentionally explicit so FinOps can change the weights as policy.
+    """
+    regions = sorted(set(REGION_CARBON) & set(REGION_PRICE_KWH))
+    impacts = [region_impact(energy_kwh, region) for region in regions]
+    cheapest = min(impacts, key=lambda row: row["electricity_cost_usd"])
+    cleanest = min(impacts, key=lambda row: row["carbon_kg"])
+
+    prices = [row["price_per_kwh"] for row in impacts]
+    carbons = [row["carbon_g_per_kwh"] for row in impacts]
+    price_span = max(prices) - min(prices) or 1.0
+    carbon_span = max(carbons) - min(carbons) or 1.0
+    for row in impacts:
+        price_score = (row["price_per_kwh"] - min(prices)) / price_span
+        carbon_score = (row["carbon_g_per_kwh"] - min(carbons)) / carbon_span
+        row["balanced_score"] = round((price_score + carbon_score) / 2.0, 4)
+    balanced = min(impacts, key=lambda row: row["balanced_score"])
+    return {
+        "regions": impacts,
+        "cheapest_region": cheapest["region"],
+        "cleanest_region": cleanest["region"],
+        "balanced_region": balanced["region"],
+    }

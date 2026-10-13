@@ -52,6 +52,43 @@ def discount_stack(
     return cache_mult * batch_mult
 
 
+def cache_break_even_reads(
+    write_cost_per_m: float,
+    input_price_per_m: float,
+    read_discount: float = 0.10,
+) -> float:
+    """Return the number of cache reads needed to recover one cache write.
+
+    ``write_cost_per_m`` and ``input_price_per_m`` use the same $/1M-token
+    unit.  Every cached read saves ``input_price * (1-read_discount)`` versus
+    reading the prefix normally.  Returning infinity makes invalid/no-savings
+    price configurations fail closed instead of claiming that cache is free.
+    """
+    write_cost = max(0.0, float(write_cost_per_m))
+    input_price = max(0.0, float(input_price_per_m))
+    discount = max(0.0, min(1.0, float(read_discount)))
+    saving_per_read = input_price * (1.0 - discount)
+    if saving_per_read <= 0:
+        return float("inf")
+    return write_cost / saving_per_read
+
+
+def cache_is_worth_it(
+    avg_cache_reads: float,
+    write_cost_per_m: float,
+    read_discount: float = 0.10,
+    input_price_per_m: float = 1.0,
+) -> bool:
+    """Whether expected cache-read savings strictly exceed cache-write cost.
+
+    ``input_price_per_m`` defaults to one so callers may also pass normalized
+    write cost.  Production callers should pass the model's actual input price.
+    """
+    return max(0.0, float(avg_cache_reads)) > cache_break_even_reads(
+        write_cost_per_m, input_price_per_m, read_discount
+    )
+
+
 def break_even_utilization(discount_frac: float) -> float:
     """Utilization at which a commitment pays off ~= 1 - discount.
 
